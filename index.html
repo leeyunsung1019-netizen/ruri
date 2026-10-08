@@ -1,0 +1,639 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Mini Transport City - Fixed & Enhanced</title>
+<style>
+/* base.css */
+*{box-sizing:border-box}body{margin:0;background:#10151d;color:#e9eef5;font-family:Arial,"Malgun Gothic",sans-serif}header{height:58px;background:#18212d;display:flex;align-items:center;justify-content:space-between;padding:0 18px;border-bottom:1px solid #344052}h1{font-size:20px;margin:0}button,select,input[type=number]{background:#263447;color:#fff;border:1px solid #46566d;border-radius:6px;padding:7px 9px;cursor:pointer}button:hover{background:#33455c}.money{color:#ffd76a;font-weight:bold}.bad{color:#ff7777}.good{color:#7ee787}.muted{color:#91a0b5;font-size:12px}main{display:grid;grid-template-columns:minmax(600px,1fr) 350px;height:calc(100vh - 58px)}#game{position:relative;overflow:hidden;background:#cbd7c2}#panel{background:#151d28;border-left:1px solid #344052;overflow:auto;padding:14px}.card{background:#1d2836;border:1px solid #35445a;border-radius:8px;padding:11px;margin-bottom:10px}.row{display:flex;justify-content:space-between;gap:8px;margin:5px 0}.grid{display:grid;grid-template-columns:1fr 1fr;gap:6px}.list{max-height:210px;overflow:auto}.log{font-size:12px;line-height:1.5;border-bottom:1px solid #2b3544;padding:5px 0}h2{font-size:17px;margin:4px 0 10px}h3{font-size:14px;margin:6px 0}.small{font-size:12px}hr{border:0;border-top:1px solid #344052;margin:10px 0}@media(max-width:900px){main{grid-template-columns:1fr}#panel{position:absolute;right:0;top:58px;width:350px;height:calc(100vh - 58px);z-index:20}}
+</style>
+<style>
+/* world.css */
+.map{position:absolute;inset:0;background:linear-gradient(#b9cce0 0 45%,#9fc59a 45% 100%)}.water{position:absolute;inset:0;background:radial-gradient(ellipse at 80% 25%,#9fc5d9 0 24%,transparent 25%),linear-gradient(120deg,transparent 0 62%,#9fc5d9 63% 100%);opacity:.8}.transport-layer{position:absolute;inset:0;width:100%;height:100%;z-index:2;overflow:visible;pointer-events:none}
+.transport-line{vector-effect:non-scaling-stroke;stroke-linecap:round}
+.road-line{stroke:#505761;stroke-width:7;filter:drop-shadow(0 1px 1px #fff9)}
+.rail-line{stroke:#343941;stroke-width:5;stroke-dasharray:8 4;filter:drop-shadow(0 1px 1px #fff9)}.city-dot{position:absolute;width:25px;height:25px;border-radius:50%;border:3px solid #fff;background:#2e79c7;z-index:5;transform:translate(-50%,-50%);box-shadow:0 2px 8px #333;cursor:pointer}.city-dot.port{background:#d27a22}.city-dot.locked{background:#888;border-color:#ff4444}.city-label{position:absolute;z-index:6;transform:translate(-50%,14px);color:#15202a;font-weight:bold;text-shadow:0 1px 2px #fff;white-space:nowrap;pointer-events:none}.map-info{position:absolute;left:15px;top:15px;background:#17212dcc;padding:10px;border-radius:8px;z-index:10}
+</style>
+<style>
+/* city.css */
+.city-bg{position:absolute;inset:0;background:linear-gradient(135deg,#8bb17d,#b6c99d)}.district{position:absolute;border:2px solid #829574;background:#a8bb91aa}.building{position:absolute;width:54px;height:42px;border:2px solid #333;border-radius:5px;background:#d8d0bb;color:#17202a;font-size:9px;font-weight:bold;text-align:center;padding-top:10px;transform:translate(-50%,-50%);cursor:pointer;box-shadow:0 2px 4px #555}.building.house{background:#d7b57a}.building.farm{background:#82b86f}.building.factory{background:#9b9b9b}.building.company{background:#ffd76a;border-color:#b8860b}.building.done{outline:2px solid #74d28b}.building.building{opacity:.55;filter:grayscale(.5)}.back{position:absolute;left:15px;top:15px;z-index:20}
+.manual-overlay{position:fixed;inset:0;background:#05080dcc;z-index:1000;display:flex;align-items:center;justify-content:center;padding:16px}
+.manual-window{width:min(800px,96vw);max-height:90vh;overflow:auto;background:#17212c;border:1px solid #52627a;border-radius:12px;padding:20px;box-shadow:0 16px 60px #000b}
+.manual-window h2{font-size:23px;margin:0 0 8px}.manual-window h3{font-size:15px;color:#ffd76a;margin:14px 0 5px}
+.manual-window p,.manual-window li{font-size:14px;line-height:1.6}.manual-window ul{padding-left:20px;margin:5px 0}
+.manual-table{width:100%;border-collapse:collapse;margin-top:8px;font-size:13px}
+.manual-table th,.manual-table td{border:1px solid #46566d;padding:6px 8px;text-align:left}
+.manual-table th{background:#263447;color:#ffd76a}
+.manual-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:16px}
+</style>
+</head>
+<body>
+<header><h1>Mini Transport City</h1><div style="display:flex;align-items:center;gap:10px"><button onclick="showManual()">📘 게임 설명서</button><div id="time"></div></div></header>
+<main>
+<section id="game"></section>
+<aside id="panel"></aside>
+</main>
+<script>
+// ===== state.js =====
+const GOODS={
+ wheat:{name:"밀",base:45},rice:{name:"쌀",base:55},corn:{name:"옥수수",base:40},
+ potato:{name:"감자",base:38},vegetable:{name:"채소",base:50},fruit:{name:"과일",base:75},
+ meat:{name:"고기",base:120},milk:{name:"우유",base:80},wood:{name:"목재",base:90},
+ coal:{name:"석탄",base:110},ironOre:{name:"철광석",base:150},oil:{name:"원유",base:220},
+ flour:{name:"밀가루",base:95},bread:{name:"빵",base:180},canned:{name:"통조림",base:240},
+ frozen:{name:"냉동식품",base:260},drink:{name:"음료",base:160},furniture:{name:"가구",base:450},
+ clothes:{name:"의류",base:380},tools:{name:"도구",base:350},steel:{name:"철강",base:500},
+ chemicals:{name:"화학제품",base:550},machine:{name:"기계",base:850},phone:{name:"스마트폰",base:1500},
+ computer:{name:"컴퓨터",base:1900},tv:{name:"TV",base:1700},fridge:{name:"냉장고",base:1400},
+ washer:{name:"세탁기",base:1500},aircon:{name:"에어컨",base:1650},car:{name:"승용차",base:4500},
+ truck:{name:"트럭",base:5800}
+};
+
+const BUILDINGS={
+ house:{name:"주택",cost:6000,days:5,workers:0,cap:600},
+ wheatFarm:{name:"밀 농장",cost:9000,days:8,workers:20,prod:{wheat:0.4}},
+ riceFarm:{name:"쌀 농장",cost:9500,days:8,workers:20,prod:{rice:0.35}},
+ vegetableFarm:{name:"채소 농장",cost:10000,days:8,workers:22,prod:{vegetable:0.3}},
+ fruitFarm:{name:"과수원",cost:12000,days:10,workers:20,prod:{fruit:0.25}},
+ ironMine:{name:"철광산",cost:22000,days:13,workers:40,prod:{ironOre:0.2}},
+ coalMine:{name:"석탄 광산",cost:18000,days:12,workers:35,prod:{coal:0.25}},
+ steelMill:{name:"철강 공장",cost:45000,days:20,workers:70,input:{ironOre:0.3,coal:0.2},prod:{steel:0.15}},
+ electronics:{name:"전자 공장",cost:65000,days:23,workers:65,input:{steel:0.1},prod:{phone:0.08,computer:0.04}},
+ company:{name:"민간 기업",cost:50000,days:12,workers:30,isCompany:true},
+ warehouse:{name:"창고",cost:8000,days:6,workers:5,storage:1000}
+};
+
+const RESEARCH=[
+ {id:"agri",name:"농업기술",cost:40000,desc:"농장/과수원 생산량 +15%"},
+ {id:"industry",name:"산업자동화",cost:70000,desc:"모든 공장 생산량 +12%"},
+ {id:"rail",name:"철도공학",cost:60000,desc:"철도 건설 비용 -15%"},
+ {id:"electronics",name:"전자공학",cost:90000,desc:"전자/가전 생산량 +20%"}
+];
+const researched=new Set();
+
+function blankGoods(){const o={};Object.keys(GOODS).forEach(k=>o[k]=0);return o}
+function makeCity(id,name,x,y,pop,special,port=false){
+ return {id,name,x,y,population:pop,maxPop:pop+1200,special,port,locked:false,strike:false,union:false,money:0,goods:blankGoods(),localPrices:{},buildings:[],workers:0,unemployed:0,stability:80,foodShort:0,wageDebt:0,unrest:0};
+}
+const S={
+ day:1,month:1,year:1,money:150000,view:"world",selected:"central",nextId:1,tradeStarted:false,tradeCount:0,events:[],
+ prices:{},links:[],construction:[],
+ cities:{
+ central:makeCity("central","중앙도시",45,48,8200,"market"),
+ farm:makeCity("farm","농업도시",18,25,5400,"farm"),
+ mine:makeCity("mine","광산도시",18,72,4600,"mine"),
+ industry:makeCity("industry","공업도시",67,24,6500,"industry"),
+ port:makeCity("port","항구도시",72,72,6000,"port",true),
+ food:makeCity("food","식품도시",44,78,5000,"food"),
+ tech:makeCity("tech","전자도시",83,45,4700,"tech")
+ }
+};
+S.links=[
+ {a:"central",b:"farm",type:"road",cap:120},
+ {a:"central",b:"industry",type:"road",cap:120},
+ {a:"central",b:"mine",type:"rail",cap:600}
+];
+
+// 민간기업 랜덤 뽑기 (비싼 상품일수록 극악 확률)
+function getRandomCompanyProduct(){
+ const items = [
+   { item: "bread", weight: 35 },     // 저가 (흔함)
+   { item: "tools", weight: 25 },
+   { item: "furniture", weight: 15 },
+   { item: "tv", weight: 10 },
+   { item: "phone", weight: 8 },      // 고가 (희귀)
+   { item: "computer", weight: 5 },
+   { item: "car", weight: 2 }         // 최고가 (극악)
+ ];
+ const totalWeight = items.reduce((sum, i) => sum + i.weight, 0);
+ let randomNum = Math.random() * totalWeight;
+ for (const entry of items) {
+   if (randomNum < entry.weight) return entry.item;
+   randomNum -= entry.weight;
+ }
+ return "bread";
+}
+
+function addBuilding(cityId,type,x,y,done=true,workers=0){
+ const b={id:S.nextId++,type,x,y,done,remaining:done?0:BUILDINGS[type].days,workers,companyProduct:null};
+ if(BUILDINGS[type].isCompany){
+  b.companyProduct = getRandomCompanyProduct();
+ }
+ S.cities[cityId].buildings.push(b);return b;
+}
+addBuilding("central","house",25,25);
+addBuilding("central","warehouse",70,65);
+addBuilding("central","wheatFarm",30,70);
+addBuilding("central","company",60,25);
+
+function logEvent(t){S.events.unshift(`[${S.year}년 ${S.month}월 ${S.day}일] ${t}`);S.events=S.events.slice(0,35)}
+</script>
+
+<script>
+// ===== world.js & city.js =====
+function renderWorld(){
+ let h=`<div class="map"><div class="water"></div>
+ <div class="map-info"><b>세계 지도</b><br><span class="small">도시를 클릭하면 도시 내부로 들어갑니다.</span>
+ <div class="small" style="margin-top:6px">━ 도로(용량 120) <span style="color:#222">┄┄</span> 철도(용량 600 / 가격 +15%)</div></div>`;
+ h+=`<svg class="transport-layer" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">`;
+ for(const l of S.links){
+  const a=S.cities[l.a],b=S.cities[l.b];
+  if(!a||!b) continue;
+  h+=`<line class="transport-line ${l.type==='rail'?'rail-line':'road-line'}" x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}"/>`;
+ }
+ h+=`</svg>`;
+ for(const c of Object.values(S.cities)){
+  h+=`<button class="city-dot ${c.port?'port':''} ${c.locked?'locked':''}" style="left:${c.x}%;top:${c.y}%" onclick="selectCity('${c.id}')" title="${c.name}${c.locked?' (도시 봉쇄됨)':''}"></button><div class="city-label" style="left:${c.x}%;top:${c.y}%">${c.name}<br><span class="small">${Math.round(c.population).toLocaleString()}명</span></div>`;
+ }
+ h+=`</div>`;
+ document.getElementById("game").innerHTML=h;
+}
+
+function renderCity(){
+ const c=S.cities[S.selected];
+ let h=`<div class="city-bg"><button class="back" onclick="backWorld()">← 세계 지도</button><div class="district" style="left:4%;top:10%;width:92%;height:80%"></div>`;
+ for(const b of c.buildings){
+  const d=BUILDINGS[b.type];
+  const typeClass = b.type==='company' ? 'company' : d.name.includes("공장")?"factory":"";
+  h+=`<div class="building ${typeClass} ${b.done?"done":"building"}" style="left:${b.x}%;top:${b.y}%" onclick="buildingInfo(${b.id})">${d.name}<br>${b.done?(b.companyProduct?GOODS[b.companyProduct].name:b.workers+"명"):"건설 "+b.remaining+"일"}</div>`;
+ }
+ h+=`</div>`;
+ document.getElementById("game").innerHTML=h;
+}
+
+function selectCity(id){ S.selected=id; S.view="city"; render(); renderPanel(); }
+function backWorld(){ S.view="world"; render(); renderPanel(); }
+function isPlayerCity(){ return S.selected==="central"; }
+
+function buildingInfo(id){
+ const c=S.cities[S.selected],b=c.buildings.find(x=>x.id===id),d=BUILDINGS[b.type];
+ alert(`${d.name}\n필요 노동자: ${d.workers}\n현재 노동자: ${b.workers}\n건설비: ${d.cost.toLocaleString()}G${b.companyProduct?"\n뽑힌 무작위 생산품: "+GOODS[b.companyProduct].name:""}`);
+}
+</script>
+
+<script>
+// ===== road & transport.js =====
+function getTransportCost(a, b, type){
+ const A=S.cities[a], B=S.cities[b];
+ const dx=(B.x-A.x), dy=(B.y-A.y);
+ const distance=Math.sqrt(dx*dx+dy*dy);
+ let cost = Math.round(distance * (type==="road"? 450 : 1200));
+ if(type==="rail" && researched.has("rail")) cost *= 0.85; // 연구 할인
+ return Math.round(cost);
+}
+
+function connectCities(a,b,type){
+ if(a===b)return;
+ if(S.links.some(l=>(l.a===a&&l.b===b)||(l.a===b&&l.b===a))){
+  logEvent("이미 두 도시는 교통망으로 연결되어 있습니다.");
+  return;
+ }
+ const cost = getTransportCost(a, b, type);
+ if(S.money < cost){
+  logEvent(`${type==="road"?"도로":"철도"} 건설 자금이 부족합니다. 필요: ${cost.toLocaleString()}G`);
+  return;
+ }
+ S.money -= cost;
+ S.links.push({a, b, type, cap: type==="road"? 120 : 600});
+ logEvent(`${S.cities[a].name} ↔ ${S.cities[b].name} ${type==="road"?"도로":"철도"} 건설 완료 (-${cost.toLocaleString()}G)`);
+ render(); renderPanel();
+}
+
+function buildTransport(type){
+ const target = document.getElementById("transportTarget")?.value;
+ if(!target) return;
+ connectCities("central", target, type);
+}
+
+function connected(a,b){
+ if(a===b)return true;
+ const q=[a],seen=new Set([a]);
+ while(q.length){
+  const x=q.shift();
+  for(const l of S.links){
+   const n=l.a===x?l.b:l.b===x?l.a:null;
+   if(n&&!seen.has(n)){if(n===b)return true;seen.add(n);q.push(n)}
+  }
+ }
+ return false;
+}
+
+function getLinkInfo(a, b){
+ return S.links.find(l => (l.a===a && l.b===b) || (l.a===b && l.b===a));
+}
+
+function calcExportPriceAndTotal(targetCityId, good, amount){
+ const targetCity = S.cities[targetCityId];
+ if(!targetCity) return { avgPrice: 0, totalRevenue: 0, capExceeded: false, linkType: "none" };
+
+ const link = getLinkInfo("central", targetCityId);
+ if(!link) return { avgPrice: 0, totalRevenue: 0, capExceeded: true, linkType: "none" };
+
+ const capExceeded = amount > link.cap;
+ let currentPrice = targetCity.localPrices?.[good] || GOODS[good].base;
+
+ if(link.type === "rail") currentPrice *= 1.15;
+
+ const dropFactor = Math.max(0.15, 1 - (amount / 300));
+ const avgPrice = Math.max(1, currentPrice * dropFactor);
+ const totalRevenue = Math.round(avgPrice * amount);
+
+ return { avgPrice: Math.round(avgPrice), totalRevenue, capExceeded, maxCap: link.cap, linkType: link.type };
+}
+
+function updateExportEstimate(){
+ try {
+  const targetEl = document.getElementById("exportTarget");
+  const goodEl = document.getElementById("exportGood");
+  const amountEl = document.getElementById("exportAmount");
+  const previewEl = document.getElementById("exportPreview");
+  if(!targetEl || !goodEl || !amountEl || !previewEl) return;
+
+  const targetId = targetEl.value;
+  const good = goodEl.value;
+  const amount = parseInt(amountEl.value) || 0;
+  const targetCity = S.cities[targetId];
+
+  if(targetCity.locked){
+   previewEl.innerHTML = "<span class='bad'>🚫 도시 봉쇄중 (수출 불가)</span>";
+   return;
+  }
+  if(!connected("central", targetId)){
+   previewEl.innerHTML = "<span class='bad'>교통망 미연결</span>";
+   return;
+  }
+  const myStock = S.cities["central"].goods[good] || 0;
+  if(myStock < amount){
+   previewEl.innerHTML = `<span class='bad'>재고 부족 (보유: ${Math.floor(myStock)}개)</span>`;
+   return;
+  }
+
+  const { avgPrice, totalRevenue, capExceeded, maxCap, linkType } = calcExportPriceAndTotal(targetId, good, amount);
+  if(capExceeded){
+   previewEl.innerHTML = `<span class='bad'>⚠️ 수송 용량 초과! (${linkType==='road'?'도로':'철도'} 최대 ${maxCap}개)</span>`;
+  } else {
+   previewEl.innerHTML = `<span class='good'>총 +${totalRevenue.toLocaleString()} G (개당 약 ${avgPrice}G ${linkType==='rail'?'/ 🚆철도+15%':''})</span>`;
+  }
+ } catch(e){ console.error(e); }
+}
+
+function exportGoodToCity(targetCityId, good, amount){
+ amount = parseInt(amount);
+ const myCity = S.cities["central"];
+ const targetCity = S.cities[targetCityId];
+
+ if(targetCity.locked){ logEvent(`${targetCity.name}은 봉쇄되어 있어 수출할 수 없습니다.`); return; }
+ if(!connected("central", targetCityId)){ logEvent("교통망이 없어 수출 불가능합니다."); return; }
+
+ const { totalRevenue, capExceeded, maxCap } = calcExportPriceAndTotal(targetCityId, good, amount);
+
+ if(capExceeded){
+  logEvent(`수송 용량을 초과했습니다. 최대 ${maxCap}개까지만 운송할 수 있습니다.`);
+  return;
+ }
+ if((myCity.goods[good] || 0) < amount){
+  logEvent("재고가 부족합니다.");
+  return;
+ }
+
+ myCity.goods[good] -= amount;
+ targetCity.goods[good] += amount;
+ S.money += totalRevenue;
+ updatePrices();
+
+ logEvent(`${myCity.name} → ${targetCity.name}: ${GOODS[good].name} ${amount}개 직접 수출 (+${totalRevenue.toLocaleString()}G)`);
+ render(); renderPanel();
+}
+</script>
+
+<script>
+// ===== research & factory & events.js =====
+function research(id){
+ const r=RESEARCH.find(x=>x.id===id);
+ if(!r||researched.has(id)||S.money<r.cost) return;
+ S.money-=r.cost;
+ researched.add(id);
+ logEvent(`연구 완료: ${r.name}`);
+ renderPanel();
+}
+
+function cityBuildings(c){ return c.buildings.filter(b=>b.done); }
+function laborPool(c){ return Math.floor(c.population*.55); }
+function rebuildWorkers(c){
+ let available=laborPool(c); c.workers=0;
+ for(const b of cityBuildings(c)){
+  const need=BUILDINGS[b.type].workers||0;
+  b.workers=Math.min(need,available); available-=b.workers; c.workers+=b.workers;
+ }
+ c.unemployed=Math.max(0,available);
+}
+
+function researchBonus(b){
+ const d=BUILDINGS[b.type];
+ let mult=1.0;
+ if(researched.has("agri") && /농장|과수원/.test(d.name)) mult *= 1.15;
+ if(researched.has("industry") && /공장/.test(d.name)) mult *= 1.12;
+ if(researched.has("electronics") && /전자/.test(d.name)) mult *= 1.20;
+ return mult;
+}
+
+function produce(){
+ for(const c of Object.values(S.cities)){
+  if(c.strike) continue;
+  rebuildWorkers(c);
+  for(const b of cityBuildings(c)){
+   const d=BUILDINGS[b.type], w=b.workers;
+   if(w<=0) continue;
+
+   // 1. 일반 공장 & 농장
+   if(d.prod){
+    let ratio=1;
+    // 원자재 체크
+    for(const [g,n] of Object.entries(d.input||{})){
+      const needed = n * w;
+      if((c.goods[g]||0) < needed){
+        ratio = Math.min(ratio, (c.goods[g]||0) / Math.max(0.001, needed));
+      }
+    }
+    ratio = Math.max(0, Math.min(1, ratio));
+
+    // ★ 수정: 실제로 재고에서 원자재 차감!
+    if(ratio > 0){
+      for(const [g,n] of Object.entries(d.input||{})){
+        c.goods[g] = Math.max(0, (c.goods[g]||0) - (n * w * ratio));
+      }
+      const bonus = researchBonus(b);
+      for(const [g,n] of Object.entries(d.prod)){
+        c.goods[g] = (c.goods[g]||0) + (n * w * ratio * bonus);
+      }
+    }
+   }
+   
+   // 2. 민간 기업 (자유생산)
+   if(d.isCompany && b.companyProduct){
+    const prodAmt = (w * 0.02);
+    c.goods[b.companyProduct] = (c.goods[b.companyProduct] || 0) + prodAmt;
+   }
+  }
+ }
+}
+
+function randomEvent(){
+ if(Math.random() > 0.35) return;
+ const cityKeys = Object.keys(S.cities);
+ const targetCity = S.cities[cityKeys[Math.floor(Math.random()*cityKeys.length)]];
+ const r = Math.random();
+
+ if(r < 0.20){
+  const randomGood = Object.keys(GOODS)[Math.floor(Math.random()*Object.keys(GOODS).length)];
+  targetCity.localPrices[randomGood] = (targetCity.localPrices[randomGood]||GOODS[randomGood].base) * 2.5;
+  logEvent(`🔥 [이벤트] ${targetCity.name}에 ${GOODS[randomGood].name} 수요 급증! 시세 2.5배 폭등!`);
+ } else if(r < 0.40){
+  targetCity.strike = true;
+  targetCity.stability -= 25;
+  logEvent(`💣 [이벤트] ${targetCity.name}에서 노동자 반란 및 파업 발생! 생산이 중단되었습니다.`);
+ } else if(r < 0.60){
+  targetCity.union = true;
+  logEvent(`✊ [이벤트] ${targetCity.name}에 노동조합이 결성되었습니다. 임금 요구가 거세집니다.`);
+ } else if(r < 0.80){
+  targetCity.locked = true;
+  logEvent(`🚫 [이벤트] 비상사태로 ${targetCity.name}이(가) 봉쇄되었습니다! 수출길이 막혔습니다.`);
+ } else {
+  targetCity.strike = false;
+  targetCity.locked = false;
+  targetCity.stability = Math.min(100, targetCity.stability + 20);
+  logEvent(`✨ [이벤트] ${targetCity.name}의 혼란이 수습되고 봉쇄 및 파업이 해제되었습니다.`);
+ }
+}
+
+function monthlyEconomy(){
+ for(const c of Object.values(S.cities)){
+  rebuildWorkers(c);
+  // ★ 노동자 월급 지출 계산 및 차감
+  let wagePerWorker = c.union ? 200 : 120;
+  const totalWage = c.workers * wagePerWorker;
+  
+  if(S.money >= totalWage){
+    S.money -= totalWage;
+    if(totalWage > 0 && c.id === "central"){
+      logEvent(`💵 [월급 지급] 내 도시 노동자 ${c.workers}명 월급 -${totalWage.toLocaleString()}G 지출`);
+    }
+  } else {
+    c.stability -= 15;
+    logEvent(`⚠️ [임금 체불] 자금 부족으로 노동자 월급 미지급! ${c.name} 불만도 폭증`);
+  }
+ }
+ updatePrices();
+ randomEvent();
+}
+</script>
+
+<script>
+// ===== economy.js =====
+function initPrices(){
+  for(const [k,g] of Object.entries(GOODS)) S.prices[k]=g.base;
+}
+function updatePrices(){
+  for(const [id,c] of Object.entries(S.cities)){
+    c.localPrices=c.localPrices||{};
+    for(const g of Object.keys(GOODS)){
+      let target = GOODS[g].base;
+      const stock = c.goods[g] || 0;
+      target *= Math.max(0.3, Math.min(3.0, 1.5 - (stock / 150)));
+      c.localPrices[g] = Math.round((c.localPrices[g] || target)*0.6 + target*0.4);
+    }
+  }
+}
+</script>
+
+<script>
+// ===== gameLoop.js =====
+function tickConstruction(){
+ for(const c of Object.values(S.cities))for(const b of c.buildings)if(!b.done){
+  b.remaining--;
+  if(b.remaining<=0){b.done=true;b.remaining=0;logEvent(`${c.name}: ${BUILDINGS[b.type].name} 완공`)}
+ }
+}
+function nextDay(){
+ S.day++; tickConstruction(); produce(); updatePrices();
+ if(S.day > 30){ S.day=1; S.month++; monthlyEconomy(); if(S.month>12){S.month=1; S.year++;} }
+ render(); renderPanel();
+}
+function skipDay(){ nextDay(); }
+</script>
+
+<script>
+// ===== main.js =====
+function render(){ S.view==="world"?renderWorld():renderCity(); }
+function money(){ return `<span class="money">${Math.round(S.money).toLocaleString()} G</span>`; }
+function goodsList(c){
+ return Object.entries(c.goods).filter(([g,v])=>v>.01).map(([g,v])=>`<div class="row"><span>${GOODS[g].name}</span><span>${v.toFixed(1)}개</span></div>`).join("")||"<span class='muted'>재고 없음</span>";
+}
+function buildingOptions(){
+ return Object.entries(BUILDINGS).map(([k,d])=>`<option value="${k}">${d.name} / ${d.cost.toLocaleString()}G / ${d.days}일</option>`).join("");
+}
+
+function renderPanel(){
+ const p=document.getElementById("panel"), c=S.cities[S.selected];
+ let h=`<div class="card"><div class="row"><b>${S.view==="world"?"세계 지도":c.name}</b><span>${S.year}년 ${S.month}월 ${S.day}일</span></div><div>보유 자금 ${money()}</div>
+ <button onclick="skipDay()" style="width:100%;margin-top:8px;font-size:15px">⏭ 하루 건너뛰기</button></div>`;
+
+ if(S.view==="world"){
+  h+=`<div class="card"><h3>도시 목록</h3>${Object.values(S.cities).map(x=>`<button onclick="selectCity('${x.id}')" style="width:100\%;margin:2px 0">${x.name} ${x.id==="central"?"(내 도시)":"(AI)"} ${x.locked?'⛔봉쇄':''}</button>`).join("")}</div>`;
+ }else{
+  rebuildWorkers(c);
+  h+=`<div class="card"><h3>도시 정보 ${isPlayerCity()?"👤 내 도시":""}</h3>
+  <div class="row"><span>상태</span><span>${c.locked?'⛔ 봉쇄됨':c.strike?'💣 파업중':'정상'}</span></div>
+  <div class="row"><span>노동조합</span><span>${c.union?'✊ 결성됨 (임금높음)':'미결성'}</span></div>
+  <div class="row"><span>인구 / 노동자</span><span>${Math.round(c.population)}명 / ${c.workers}명</span></div>
+  <div class="row"><span>예상 월급 지출</span><span>${(c.workers*(c.union?200:120)).toLocaleString()} G / 월</span></div>
+  </div>`;
+
+  if(isPlayerCity()){
+   h+=`<div class="card"><h3>건설 (회사/공장/주택)</h3>
+   <select id="buildType" style="width:100%">${buildingOptions()}</select>
+   <div style="display:flex;gap:6px;margin-top:6px;align-items:center">
+     <span style="font-size:12px;white-space:nowrap">개수:</span>
+     <input type="number" id="buildCount" value="1" min="1" max="20" style="width:70px" />
+     <button style="flex:1" onclick="startBuild(document.getElementById('buildType').value, document.getElementById('buildCount').value)">건설</button>
+   </div>
+   </div>`;
+
+   const targetSel = Object.values(S.cities).filter(x=>x.id!=="central")[0]?.id || "farm";
+   h+=`<div class="card"><h3>교통망 건설 (비용 명시)</h3>
+   <select id="transportTarget" style="width:100%" onchange="updateTransportCostDisplay()">
+   ${Object.values(S.cities).filter(x=>x.id!=="central").map(x=>`<option value="${x.id}">${x.name}</option>`).join("")}
+   </select>
+   <div id="transportCostInfo" style="margin:6px 0;font-size:12px"></div>
+   <div class="grid">
+    <button onclick="buildTransport('road')">🛣 도로 건설</button>
+    <button onclick="buildTransport('rail')">🚆 철도 건설</button>
+   </div>
+   </div>`;
+
+   h+=`<div class="card"><h3>🚢 직접 수출하기</h3>
+   <div style="margin-bottom:4px"><span style="font-size:12px">수출할 도시:</span>
+     <select id="exportTarget" style="width:100%" onchange="updateExportEstimate()">
+       ${Object.values(S.cities).filter(x=>x.id!=="central").map(x=>`<option value="${x.id}">${x.name}${x.locked?'(봉쇄)':''}</option>`).join("")}
+     </select>
+   </div>
+   <div style="margin-bottom:4px"><span style="font-size:12px">수출 상품:</span>
+     <select id="exportGood" style="width:100%" onchange="updateExportEstimate()">
+       ${Object.entries(GOODS).map(([k,g])=>`<option value="${k}">${g.name} (보유: ${Math.floor(S.cities['central'].goods[k]||0)}개)</option>`).join("")}
+     </select>
+   </div>
+   <div style="display:flex;gap:6px;margin-top:6px;align-items:center">
+     <span style="font-size:12px;white-space:nowrap">수량:</span>
+     <input type="number" id="exportAmount" value="20" min="1" style="width:80px" oninput="updateExportEstimate()" />
+     <button style="flex:1" onclick="exportGoodToCity(document.getElementById('exportTarget').value, document.getElementById('exportGood').value, document.getElementById('exportAmount').value)">수출</button>
+   </div>
+   <div style="margin-top:6px;font-size:12px">예상 벌 돈: <span id="exportPreview">-</span></div>
+   </div>`;
+
+   // ★ 복원된 연구 센터 UI ★
+   h+=`<div class="card"><h3>🔬 기술 연구 센터</h3>${RESEARCH.map(r=>`<button style="width:100%;margin:3px 0;text-align:left" onclick="research('${r.id}')" ${researched.has(r.id)?'disabled':''}>${researched.has(r.id)?'✅ ':''}${r.name} (${r.cost.toLocaleString()}G)<br><span class="muted">${r.desc}</span></button>`).join("")}</div>`;
+  }
+
+  h+=`<div class="card"><h3>재고 목록</h3><div class="list">${goodsList(c)}</div></div>`;
+  h+=`<div class="card"><h3>도시 시장 시세</h3><div class="list">${marketList(c)}</div></div>`;
+ }
+
+ h+=`<div class="card"><h3>교통망 현황</h3>${S.links.map(l=>`<div class="row"><span>${S.cities[l.a].name} ↔ ${S.cities[l.b].name}</span><span>${l.type==="road"?"🛣 도로(최대120)":"🚆 철도(최대600/+15%G)"}</span></div>`).join("")||"<span class='muted'>교통망 없음</span>"}</div>`;
+ h+=`<div class="card"><h3>이벤트 로그</h3><div class="list">${S.events.map(e=>`<div class="log">${e}</div>`).join("")||"<span class='muted'>사건 없음</span>"}</div></div>`;
+ p.innerHTML=h;
+ document.getElementById("time").innerHTML=`DAY ${S.day} · ${S.year}/${S.month} · ${money()}`;
+
+ if(S.view!=="world" && isPlayerCity()){
+  updateExportEstimate();
+  updateTransportCostDisplay();
+ }
+}
+
+function updateTransportCostDisplay(){
+ const target = document.getElementById("transportTarget")?.value;
+ const infoEl = document.getElementById("transportCostInfo");
+ if(!target || !infoEl) return;
+ const roadCost = getTransportCost("central", target, "road");
+ const railCost = getTransportCost("central", target, "rail");
+ infoEl.innerHTML = `비용: 도로 <b>${roadCost.toLocaleString()}G</b> / 철도 <b>${railCost.toLocaleString()}G</b>`;
+}
+
+function startBuild(type, count=1){
+ const c=S.cities[S.selected], d=BUILDINGS[type];
+ count = parseInt(count) || 1;
+ const totalCost = d.cost * count;
+ if(S.money < totalCost){ logEvent(`건설 자금 부족 (필요: ${totalCost.toLocaleString()}G)`); return; }
+ S.money -= totalCost;
+ for(let i=0; i<count; i++){
+  const b=addBuilding(c.id, type, 15+Math.random()*70, 18+Math.random()*68, false);
+  S.construction.push({city:c.id, id:b.id});
+ }
+ logEvent(`${c.name}: ${d.name} ${count}개 건설 시작 (-${totalCost.toLocaleString()}G)`);
+ render(); renderPanel();
+}
+
+function marketList(c){
+ return Object.entries(GOODS).map(([k,g])=>`<div class="row"><span>${g.name}</span><span>${Math.round(c.localPrices?.[k]||g.base)}G</span></div>`).join("");
+}
+
+function showManual(){
+ const old=document.getElementById("manualOverlay");
+ if(old) old.remove();
+ const el=document.createElement("div");
+ el.id="manualOverlay"; el.className="manual-overlay";
+ el.innerHTML=`<section class="manual-window">
+ <h2>📘 종합 게임 설명서 & 가이드</h2>
+ 
+ <h3>1. 민간 기업 (회사) 차등 확률 시스템</h3>
+ <p>건설 메뉴에서 '민간 기업'을 설립하면 확률에 따라 특수 상품이 정해집니다!</p>
+ <ul>
+   <li><b>흔함 (60%):</b> 빵, 도구</li>
+   <li><b>보통 (25%):</b> 가구, TV</li>
+   <li><b>희귀 (13%):</b> 스마트폰, 컴퓨터</li>
+   <li><b>극악 (2%):</b> 승용차 🚗 (대박!)</li>
+ </ul>
+
+ <h3>2. 가공 공장별 필요 원자재 및 생산품 표</h3>
+ <table class="manual-table">
+   <thead>
+     <tr>
+       <th>건물 이름</th>
+       <th>필요 노동자</th>
+       <th>필요 원자재 (Input)</th>
+       <th>생산 품목 (Output)</th>
+     </tr>
+   </thead>
+   <tbody>
+     <tr><td>철강 공장</td><td>70명</td><td>철광석, 석탄</td><td>철강</td></tr>
+     <tr><td>전자 공장</td><td>65명</td><td>철강</td><td>스마트폰, 컴퓨터</td></tr>
+   </tbody>
+ </table>
+
+ <h3>3. 기술 연구 및 보너스</h3>
+ <ul>
+   <li><b>농업기술 (40,000G):</b> 농장·과수원 생산량 +15%</li>
+   <li><b>산업자동화 (70,000G):</b> 공장 생산량 +12%</li>
+   <li><b>철도공학 (60,000G):</b> 철도 건설비 15% 할인</li>
+   <li><b>전자공학 (90,000G):</b> 전자제품 생산량 +20%</li>
+ </ul>
+
+ <h3>4. 월급 및 소비 시스템</h3>
+ <p>매월 30일마다 가동 중인 건물에 배정된 노동자 월급(기본 120G / 노조 200G)이 보유 자금에서 차감됩니다.</p>
+ <div class="manual-actions"><button onclick="document.getElementById('manualOverlay').remove()">시작하기</button></div>
+ </section>`;
+ document.body.appendChild(el);
+}
+
+function init(){
+ initPrices();
+ Object.values(S.cities).forEach(c=>{ c.localPrices = c.localPrices || {}; });
+ updatePrices();
+ logEvent("Mini Transport City 개선 버전이 시작되었습니다!");
+ render(); renderPanel(); showManual();
+}
+init();
+</script>
+<div style="position:fixed;bottom:5px;left:8px;font-size:10px;color:#687789;z-index:999">Mini Transport City — Fixed & Enhanced</div>
+</body>
+</html>
