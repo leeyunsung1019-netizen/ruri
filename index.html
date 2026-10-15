@@ -1,23 +1,716 @@
-create table public.game_saves (
-  user_id uuid primary key references auth.users(id) on delete cascade,
-  save_data jsonb not null,
-  updated_at timestamptz not null default now()
-);
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Mini Transport City</title>
+<style>
+/* base.css */
+*{box-sizing:border-box}body{margin:0;background:#10151d;color:#e9eef5;font-family:Arial,"Malgun Gothic",sans-serif}header{height:58px;background:#18212d;display:flex;align-items:center;justify-content:space-between;padding:0 18px;border-bottom:1px solid #344052}h1{font-size:20px;margin:0}button,select{background:#263447;color:#fff;border:1px solid #46566d;border-radius:6px;padding:7px 9px;cursor:pointer}button:hover{background:#33455c}.money{color:#ffd76a;font-weight:bold}.bad{color:#ff7777}.good{color:#7ee787}.muted{color:#91a0b5;font-size:12px}main{display:grid;grid-template-columns:minmax(600px,1fr) 350px;height:calc(100vh - 58px)}#game{position:relative;overflow:hidden;background:#cbd7c2}#panel{background:#151d28;border-left:1px solid #344052;overflow:auto;padding:14px}.card{background:#1d2836;border:1px solid #35445a;border-radius:8px;padding:11px;margin-bottom:10px}.row{display:flex;justify-content:space-between;gap:8px;margin:5px 0}.grid{display:grid;grid-template-columns:1fr 1fr;gap:6px}.tag{display:inline-block;padding:3px 6px;border-radius:4px;background:#29394e;font-size:11px;margin:2px}.list{max-height:210px;overflow:auto}.log{font-size:12px;line-height:1.5;border-bottom:1px solid #2b3544;padding:5px 0}h2{font-size:17px;margin:4px 0 10px}h3{font-size:14px;margin:6px 0}.small{font-size:12px}hr{border:0;border-top:1px solid #344052;margin:10px 0}@media(max-width:900px){main{grid-template-columns:1fr}#panel{position:absolute;right:0;top:58px;width:350px;height:calc(100vh - 58px);z-index:20}}
 
-alter table public.game_saves enable row level security;
+.player-badge{padding:3px 6px;border-radius:4px;background:#376b9e;font-size:11px}.ai-badge{padding:3px 6px;border-radius:4px;background:#555f6d;font-size:11px}</style>
+<style>
+/* world.css */
+.map{position:absolute;inset:0;background:linear-gradient(#b9cce0 0 45%,#9fc59a 45% 100%)}.water{position:absolute;inset:0;background:radial-gradient(ellipse at 80% 25%,#9fc5d9 0 24%,transparent 25%),linear-gradient(120deg,transparent 0 62%,#9fc5d9 63% 100%);opacity:.8}.transport-layer{position:absolute;inset:0;width:100%;height:100%;z-index:2;overflow:visible;pointer-events:none}
+.transport-line{vector-effect:non-scaling-stroke;stroke-linecap:round}
+.road-line{stroke:#505761;stroke-width:7;filter:drop-shadow(0 1px 1px #fff9)}
+.rail-line{stroke:#343941;stroke-width:5;stroke-dasharray:8 4;filter:drop-shadow(0 1px 1px #fff9)}.city-dot{position:absolute;width:25px;height:25px;border-radius:50%;border:3px solid #fff;background:#2e79c7;z-index:5;transform:translate(-50%,-50%);box-shadow:0 2px 8px #333}.city-dot.port{background:#d27a22}.city-label{position:absolute;z-index:6;transform:translate(-50%,14px);color:#15202a;font-weight:bold;text-shadow:0 1px 2px #fff;white-space:nowrap}.map-info{position:absolute;left:15px;top:15px;background:#17212dcc;padding:10px;border-radius:8px;z-index:10}.mode{margin-bottom:8px}
 
-create policy "Users can read own save"
-on public.game_saves
-for select to authenticated
-using ((select auth.uid()) = user_id);
+</style>
+<style>
+/* city.css */
+.city-bg{position:absolute;inset:0;background:linear-gradient(135deg,#8bb17d,#b6c99d)}.district{position:absolute;border:2px solid #829574;background:#a8bb91aa}.building{position:absolute;width:54px;height:42px;border:2px solid #333;border-radius:5px;background:#d8d0bb;color:#17202a;font-size:9px;font-weight:bold;text-align:center;padding-top:13px;transform:translate(-50%,-50%);cursor:pointer;box-shadow:0 2px 4px #555}.building.house{background:#d7b57a}.building.farm{background:#82b86f}.building.factory{background:#9b9b9b}.building.electronics{background:#7fa7c8}.building.appliance{background:#b6a4cf}.building.car{background:#bd7f7f}.building.food{background:#d2a46f}.building.mine{background:#6f7478;color:#fff}.building.wood{background:#6e8b60;color:#fff}.building.steel{background:#6f7884;color:#fff}.building.warehouse{background:#b09b70}.building.done{outline:2px solid #74d28b}.building.building{opacity:.55;filter:grayscale(.5)}.back{position:absolute;left:15px;top:15px;z-index:20}
 
-create policy "Users can insert own save"
-on public.game_saves
-for insert to authenticated
-with check ((select auth.uid()) = user_id);
+.building{transition:.15s}.building:hover{transform:translate(-50%,-50%) scale(1.08);z-index:30}.building.electronics{box-shadow:0 0 8px #66aaff}.building.car{box-shadow:0 0 8px #ff7777}
 
-create policy "Users can update own save"
-on public.game_saves
-for update to authenticated
-using ((select auth.uid()) = user_id)
-with check ((select auth.uid()) = user_id);ㅍ
+</style>
+<style>
+/* modal.css */
+.modal{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);background:#17212c;border:1px solid #52627a;border-radius:10px;padding:16px;min-width:300px;z-index:100;box-shadow:0 10px 40px #0009}.modal h3{margin-top:0}.close{float:right}
+</style>
+
+<style>
+.manual-overlay{position:fixed;inset:0;background:#05080dcc;z-index:1000;display:flex;align-items:center;justify-content:center;padding:16px}
+.manual-window{width:min(760px,96vw);max-height:90vh;overflow:auto;background:#17212c;border:1px solid #52627a;border-radius:12px;padding:20px;box-shadow:0 16px 60px #000b}
+.manual-window h2{font-size:23px;margin:0 0 8px}.manual-window h3{font-size:15px;color:#ffd76a;margin:14px 0 5px}
+.manual-window p,.manual-window li{font-size:14px;line-height:1.6}.manual-window ul{padding-left:20px;margin:5px 0}
+.manual-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:16px}
+</style>
+</head>
+<body>
+<!-- Supabase cloud-save client. Publishable key is safe for browser use when RLS is enabled. -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+const SUPABASE_URL = "https://ornnyfplvwqwwpegdfbq.supabase.co";
+const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_j1uZXIwtOd69FbwLErdHcw_5ZUj-JpA";
+const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
+</script>
+<header><h1>Mini Transport City</h1><div style="display:flex;align-items:center;gap:10px"><button onclick="showManual()">📘 게임 설명서</button><div id="time"></div></div></header>
+<main>
+<section id="game"></section>
+<aside id="panel"></aside>
+</main>
+<script>
+// ===== state.js =====
+const GOODS={
+ wheat:{name:"밀",cat:"농산물",base:8},rice:{name:"쌀",cat:"농산물",base:10},corn:{name:"옥수수",cat:"농산물",base:7},
+ potato:{name:"감자",cat:"농산물",base:6},vegetable:{name:"채소",cat:"농산물",base:9},fruit:{name:"과일",cat:"농산물",base:13},
+ meat:{name:"고기",cat:"축산물",base:22},milk:{name:"우유",cat:"축산물",base:12},wood:{name:"목재",cat:"원자재",base:14},
+ coal:{name:"석탄",cat:"원자재",base:18},ironOre:{name:"철광석",cat:"원자재",base:24},oil:{name:"원유",cat:"원자재",base:30},
+ flour:{name:"밀가루",cat:"가공식품",base:16},bread:{name:"빵",cat:"식품",base:28},canned:{name:"통조림",cat:"식품",base:34},
+ frozen:{name:"냉동식품",cat:"식품",base:38},drink:{name:"음료",cat:"식품",base:24},furniture:{name:"가구",cat:"생활",base:55},
+clothes:{name:"의류",cat:"생활",base:48},tools:{name:"도구",cat:"산업",base:45},steel:{name:"철강",cat:"산업",base:60},
+chemicals:{name:"화학제품",cat:"산업",base:70},machine:{name:"기계",cat:"산업",base:100},phone:{name:"스마트폰",cat:"전자",base:180},
+computer:{name:"컴퓨터",cat:"전자",base:240},tv:{name:"TV",cat:"전자",base:220},fridge:{name:"냉장고",cat:"가전",base:190},
+washer:{name:"세탁기",cat:"가전",base:200},aircon:{name:"에어컨",cat:"가전",base:230},car:{name:"승용차",cat:"차량",base:900},
+truck:{name:"트럭",cat:"차량",base:1100}
+};
+const BUILDINGS={
+ house:{name:"주택",cost:4500,days:5,workers:0,cap:600},
+ wheatFarm:{name:"밀 농장",cost:6500,days:8,workers:20,prod:{wheat:3}},
+ riceFarm:{name:"쌀 농장",cost:7000,days:8,workers:20,prod:{rice:2.5}},
+ cornFarm:{name:"옥수수 농장",cost:6200,days:8,workers:18,prod:{corn:3}},
+ potatoFarm:{name:"감자 농장",cost:5800,days:7,workers:18,prod:{potato:3}},
+ vegetableFarm:{name:"채소 농장",cost:7000,days:8,workers:22,prod:{vegetable:2.5}},
+ fruitFarm:{name:"과수원",cost:8500,days:10,workers:20,prod:{fruit:2}},
+ livestock:{name:"축산 농장",cost:10000,days:11,workers:28,prod:{meat:1,milk:.7}},
+ dairy:{name:"낙농장",cost:9500,days:10,workers:24,prod:{milk:1.5}},
+ lumber:{name:"벌목장",cost:8000,days:9,workers:18,prod:{wood:2}},
+ coalMine:{name:"석탄 광산",cost:12000,days:12,workers:35,prod:{coal:1.5}},
+ ironMine:{name:"철광산",cost:15000,days:13,workers:40,prod:{ironOre:1.3}},
+ oilField:{name:"유전",cost:22000,days:16,workers:35,prod:{oil:.8}},
+ flourMill:{name:"제분 공장",cost:11000,days:10,workers:25,input:{wheat:1.5},prod:{flour:1.2}},
+ foodFactory:{name:"식품 공장",cost:18000,days:15,workers:45,input:{flour:.6,vegetable:.3,meat:.15},prod:{bread:.7,canned:.25,frozen:.2}},
+ drinkFactory:{name:"음료 공장",cost:16000,days:14,workers:35,input:{fruit:.25,corn:.3},prod:{drink:.6}},
+ furniture:{name:"가구 공장",cost:17000,days:15,workers:40,input:{wood:1},prod:{furniture:.65}},
+ textile:{name:"의류 공장",cost:16000,days:14,workers:38,input:{chemicals:.15},prod:{clothes:.8}},
+ toolFactory:{name:"도구 공장",cost:20000,days:16,workers:45,input:{steel:.7},prod:{tools:.7}},
+ steelMill:{name:"철강 공장",cost:30000,days:20,workers:70,input:{ironOre:1.4,coal:.8},prod:{steel:1}},
+ chemical:{name:"화학 공장",cost:28000,days:19,workers:55,input:{oil:.8,coal:.2},prod:{chemicals:.8}},
+ machine:{name:"기계 공장",cost:38000,days:22,workers:70,input:{steel:.8,chemicals:.4},prod:{machine:.5}},
+ electronics:{name:"전자제품 공장",cost:42000,days:23,workers:65,input:{chemicals:.3,steel:.15},prod:{phone:.45,computer:.18,tv:.2}},
+ appliance:{name:"가전제품 공장",cost:40000,days:22,workers:60,input:{steel:.5,chemicals:.4,electronics:.1},prod:{fridge:.15,washer:.18,aircon:.15}},
+ carFactory:{name:"자동차 공장",cost:70000,days:30,workers:100,input:{steel:2,machine:.5,chemicals:.3},prod:{car:.12,truck:.04}},
+ warehouse:{name:"창고",cost:6000,days:6,workers:5,storage:1000}
+};
+function blankGoods(){const o={};Object.keys(GOODS).forEach(k=>o[k]=0);return o}
+function makeCity(id,name,x,y,pop,special,port=false){
+ return {id,name,x,y,population:pop,maxPop:pop+1200,special,port,money:0,goods:blankGoods(),buildings:[],workers:0,unemployed:0,stability:80,foodShort:0,wageDebt:0,unrest:0};
+}
+const S={
+ day:1,month:1,year:1,money:180000,view:"world",selected:"central",nextId:1,tradeStarted:false,tradeCount:0,events:[],
+ prices:{},links:[],construction:[],speed:5000,
+ cities:{
+ central:makeCity("central","중앙도시",45,48,8200,"market"),
+ farm:makeCity("farm","농업도시",18,25,5400,"farm"),
+ mine:makeCity("mine","광산도시",18,72,4600,"mine"),
+ industry:makeCity("industry","공업도시",67,24,6500,"industry"),
+ port:makeCity("port","항구도시",72,72,6000,"port",true),
+ food:makeCity("food","식품도시",44,78,5000,"food"),
+ tech:makeCity("tech","전자도시",83,45,4700,"tech")
+ }
+};
+S.links=[
+ {a:"central",b:"farm",type:"road"},{a:"central",b:"industry",type:"road"},
+ {a:"central",b:"mine",type:"rail"},{a:"industry",b:"port",type:"rail"},
+ {a:"central",b:"food",type:"road"},{a:"industry",b:"tech",type:"rail"}
+];
+function addBuilding(cityId,type,x,y,done=true,workers=0){
+ const b={id:S.nextId++,type,x,y,done,remaining:done?0:BUILDINGS[type].days,workers};
+ S.cities[cityId].buildings.push(b);return b;
+}
+// 시작 건물: 실제로 공업도시에 공장과 다른 산업시설이 존재
+addBuilding("central","house",25,25);
+addBuilding("central","warehouse",70,65);
+addBuilding("farm","wheatFarm",25,30); addBuilding("farm","riceFarm",55,55); addBuilding("farm","vegetableFarm",75,28);
+addBuilding("mine","ironMine",35,35); addBuilding("mine","coalMine",65,65);
+addBuilding("industry","steelMill",25,30); addBuilding("industry","machine",58,55); addBuilding("industry","electronics",76,28);
+addBuilding("port","lumber",35,35); addBuilding("port","warehouse",65,65);
+addBuilding("food","flourMill",25,30); addBuilding("food","foodFactory",60,55);
+addBuilding("tech","electronics",45,35); addBuilding("tech","appliance",70,65);
+function logEvent(t){S.events.unshift(`[${S.year}년 ${S.month}월 ${S.day}일] ${t}`);S.events=S.events.slice(0,35)}
+
+</script>
+<script>
+// ===== world.js =====
+function renderWorld(){
+ let h=`<div class="map"><div class="water"></div>
+ <div class="map-info"><b>세계 지도</b><br><span class="small">도시를 클릭하면 도시 내부로 들어갑니다.</span>
+ <div class="small" style="margin-top:6px">━ 도로　<span style="color:#222">┄┄</span> 철도</div></div>`;
+ // SVG viewBox와 도시 좌표를 같은 0~100 기준으로 사용해 선 끝점을 정확히 맞춥니다.
+ h+=`<svg class="transport-layer" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">`;
+ for(const l of S.links){
+  const a=S.cities[l.a],b=S.cities[l.b];
+  if(!a||!b) continue;
+  if(l.type==="rail"){
+   h+=`<line class="transport-line rail-line" x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}"/>`;
+  }else{
+   h+=`<line class="transport-line road-line" x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}"/>`;
+  }
+ }
+ h+=`</svg>`;
+ for(const c of Object.values(S.cities)){
+  h+=`<button class="city-dot ${c.port?'port':''}" style="left:${c.x}%;top:${c.y}%" onclick="selectCity('${c.id}')" title="${c.name}"></button><div class="city-label" style="left:${c.x}%;top:${c.y}%">${c.name}<br><span class="small">${Math.round(c.population).toLocaleString()}명</span></div>`;
+ }
+ h+=`</div>`;
+ document.getElementById("game").innerHTML=h;
+}
+function selectCity(id){
+  S.selected=id;
+  S.view="city";
+  render();
+  renderPanel();
+}
+function backWorld(){S.view="world";render();renderPanel()}
+function isPlayerCity(){return S.selected==="central"}
+
+</script>
+<script>
+// ===== road.js =====
+function connectCities(a,b,type){
+ if(a===b)return;
+ if(S.links.some(l=>(l.a===a&&l.b===b)||(l.a===b&&l.b===a))){
+  logEvent("이미 연결된 도시입니다.");
+  return;
+ }
+ const A=S.cities[a],B=S.cities[b];
+ const dx=(B.x-A.x),dy=(B.y-A.y);
+ const distance=Math.sqrt(dx*dx+dy*dy);
+ const cost=Math.round(distance*(type==="road"?55:125)*10);
+ if(S.money<cost){
+  logEvent(`${type==="road"?"도로":"철도"} 건설 자금이 부족합니다. 필요 ${cost.toLocaleString()}G`);
+  return;
+ }
+ S.money-=cost;
+ S.links.push({a,b,type,capacity:type==="road"?500:1800,used:0});
+ logEvent(`${A.name} ↔ ${B.name} ${type==="road"?"도로":"철도"} 건설 완료 (-${cost.toLocaleString()}G)`);
+ render();renderPanel();
+}
+
+</script>
+<script>
+// ===== rail.js =====
+function buildTransport(type){
+ const target=document.getElementById("transportTarget");
+ if(!target){logEvent("연결할 도시를 선택하세요.");return}
+ const a="central", b=target.value;
+ if(a===b){logEvent("같은 도시에는 연결할 수 없습니다.");return}
+ connectCities(a,b,type);
+}
+
+</script>
+<script>
+// ===== transport.js =====
+
+function connected(a,b){
+ if(a===b)return true;
+ const q=[a],seen=new Set([a]);
+ while(q.length){
+  const x=q.shift();
+  for(const l of S.links){
+   const n=l.a===x?l.b:l.b===x?l.a:null;
+   if(n&&!seen.has(n)){if(n===b)return true;seen.add(n);q.push(n)}
+  }
+ }
+ return false;
+}
+function route(a,b){
+ const q=[[a]],seen=new Set([a]);
+ while(q.length){
+  const path=q.shift(),x=path[path.length-1];
+  if(x===b)return path;
+  for(const l of S.links){
+   const n=l.a===x?l.b:l.b===x?l.a:null;
+   if(n&&!seen.has(n)){seen.add(n);q.push([...path,n])}
+  }
+ }
+ return null;
+}
+function tradeGood(from,to,good,amount){
+ const A=S.cities[from],B=S.cities[to];
+ if(from===to){logEvent("같은 도시끼리는 무역할 수 없습니다.");return}
+ if(!route(from,to)){logEvent("두 도시가 도로 또는 철도로 연결되어 있지 않습니다.");return}
+ if(A.goods[good]<amount){logEvent(`${A.name}에 ${GOODS[good].name} 재고가 부족합니다.`);return}
+ const sellPrice=A.localPrices?.[good]||GOODS[good].base;
+ const buyPrice=B.localPrices?.[good]||GOODS[good].base;
+ const revenue=Math.round(amount*buyPrice);
+ const cost=Math.round(amount*sellPrice);
+ A.goods[good]-=amount;
+ B.goods[good]+=amount;
+ S.money+=Math.max(0,revenue-cost);
+ S.tradeCount++;
+ S.tradeStarted=true;
+ logEvent(`${A.name} → ${B.name}: ${GOODS[good].name} ${amount}개 무역, 차익 +${Math.max(0,revenue-cost).toLocaleString()}G`);
+ render();renderPanel();
+}
+function middleTrade(good,amount){
+ const hub=S.selected,ids=Object.keys(S.cities);
+ let source=null,dest=null;
+ for(const a of ids)for(const b of ids){
+  if(a!==hub&&b!==hub&&a!==b&&S.cities[a].goods[good]>=amount&&route(a,hub)&&route(hub,b)){
+   const buy=S.cities[a].localPrices?.[good]||GOODS[good].base;
+   const sell=S.cities[b].localPrices?.[good]||GOODS[good].base;
+   if(sell>buy*1.15){source=a;dest=b;break}
+  }
+  if(source)break;
+ }
+ if(!source){logEvent("현재 중계무역으로 수익을 낼 수 있는 노선이 없습니다.");return}
+ const A=S.cities[source],B=S.cities[dest],buy=A.localPrices[good],sell=B.localPrices[good];
+ A.goods[good]-=amount; S.money+=Math.round((sell-buy)*amount);
+ S.tradeStarted=true;S.tradeCount++;
+ logEvent(`${A.name} → ${S.cities[hub].name} → ${B.name}: ${GOODS[good].name} ${amount}개 중계무역, 이익 +${Math.round((sell-buy)*amount).toLocaleString()}G`);
+}
+
+</script>
+<script>
+// ===== factory.js =====
+
+function cityBuildings(c){return c.buildings.filter(b=>b.done)}
+function laborPool(c){return Math.floor(c.population*.55)}
+function rebuildWorkers(c){
+ let available=laborPool(c);c.workers=0;
+ for(const b of cityBuildings(c)){
+  const need=BUILDINGS[b.type].workers||0;
+  b.workers=Math.min(need,available); available-=b.workers; c.workers+=b.workers;
+ }
+ c.unemployed=Math.max(0,available);
+}
+function researchBonus(b){
+ const d=BUILDINGS[b.type];
+ let x=1;
+ if(researched.has("agri") && /농장|과수원|축산|낙농|벌목/.test(d.name)) x*=1.15;
+ if(researched.has("industry") && /공장/.test(d.name)) x*=1.12;
+ if(researched.has("electronics") && /전자|가전/.test(d.name)) x*=1.20;
+ return x;
+}
+function produce(){
+ for(const c of Object.values(S.cities)){
+  rebuildWorkers(c);
+  for(const b of cityBuildings(c)){
+   const d=BUILDINGS[b.type],w=b.workers;
+   if(!d.prod||w<=0) continue;
+   let ratio=1;
+   for(const [g,n] of Object.entries(d.input||{}))
+     ratio=Math.min(ratio,c.goods[g]/Math.max(.001,n*w));
+   ratio=Math.max(0,Math.min(1,ratio));
+   for(const [g,n] of Object.entries(d.input||{})) c.goods[g]-=n*w*ratio;
+   const bonus=researchBonus(b);
+   for(const [g,n] of Object.entries(d.prod)) c.goods[g]+=n*w*ratio*bonus;
+  }
+ }
+}
+function aiTrade(){
+ const ids=Object.keys(S.cities);
+ for(const a of ids){
+  if(a==="central") continue;
+  for(const b of ids){
+   if(a===b||b==="central"||!connected(a,b)) continue;
+   const A=S.cities[a],B=S.cities[b];
+   for(const g of ["rice","wheat","steel","wood","coal","ironOre","bread","clothes","machine","phone"]){
+    const pa=A.localPrices?.[g]||GOODS[g].base, pb=B.localPrices?.[g]||GOODS[g].base;
+    if(A.goods[g]>150 && pb>pa*1.25){
+      const amount=Math.min(40,Math.floor(A.goods[g]-100));
+      A.goods[g]-=amount; B.goods[g]+=amount;
+      break;
+    }
+   }
+  }
+ }
+}
+function monthlyEconomy(){
+ for(const c of Object.values(S.cities)){
+  rebuildWorkers(c);
+  const wage=c.workers*120;
+  if(S.money>=wage){S.money-=wage;c.wageDebt=0;c.unrest=Math.max(0,c.unrest-2)}
+  else{c.wageDebt++;c.unrest+=4;if(c.wageDebt>=3){c.workers=Math.max(0,c.workers-Math.ceil(c.workers*.05));logEvent(`${c.name}: 임금 체불로 노동자 이탈`)}}
+  const foodNeed=c.population*.25;
+  let available=0;
+  for(const g of ECON.food) available+=c.goods[g]||0;
+  if(available<foodNeed)c.foodShort++;
+  else c.foodShort=0;
+  if(c.foodShort>=2){
+    const death=Math.ceil(c.population*(.004*c.foodShort));
+    c.population=Math.max(100,c.population-death);
+    logEvent(`${c.name}: 장기 식량 부족으로 ${death}명 감소`);
+  }
+  if(c.unemployed/Math.max(1,laborPool(c))>.25){c.stability-=2;c.unrest+=3}
+  if(c.unrest>30&&Math.random()<.3){c.stability-=10;logEvent(`${c.name}: 노동 불만으로 시위 발생`)}
+  c.maxPop=c.population+c.buildings.filter(b=>b.done&&b.type==="house").length*600+1200;
+  if(c.population<c.maxPop&&c.foodShort===0&&c.stability>55)c.population+=Math.max(1,Math.floor(c.population*.002));
+  c.stability=Math.max(0,Math.min(100,c.stability)); c.unrest=Math.max(0,c.unrest);
+ }
+ consumeGoods();
+ updatePrices();
+ autoTrade();
+ randomEvent();
+}
+
+</script>
+<script>
+// ===== research.js =====
+const RESEARCH=[
+ {id:"agri",name:"농업기술",cost:40000,desc:"농장 생산량 +15%"},
+ {id:"industry",name:"산업자동화",cost:70000,desc:"공장 생산량 +12%"},
+ {id:"rail",name:"철도공학",cost:60000,desc:"철도 건설비 -15%"},
+ {id:"electronics",name:"전자공학",cost:90000,desc:"전자·가전 생산 +20%"}
+];
+const researched=new Set();
+function research(id){const r=RESEARCH.find(x=>x.id===id);if(!r||researched.has(id)||S.money<r.cost)return;S.money-=r.cost;researched.add(id);logEvent(`연구 완료: ${r.name}`);renderPanel()}
+
+</script>
+<script>
+// ===== city.js =====
+function renderCity(){
+ const c=S.cities[S.selected];let h=`<div class="city-bg"><button class="back" onclick="backWorld()">← 세계 지도</button><div class="district" style="left:4%;top:10%;width:92%;height:80%"></div>`;
+ for(const b of c.buildings){const d=BUILDINGS[b.type];h+=`<div class="building ${d.name.includes("공장")?"factory":""} ${b.done?"done":"building"}" style="left:${b.x}%;top:${b.y}%" onclick="buildingInfo(${b.id})">${d.name}<br>${b.done?b.workers+"명":"건설 "+b.remaining+"일"}</div>`}
+ h+=`</div>`;document.getElementById("game").innerHTML=h;
+}
+function buildingInfo(id){const c=S.cities[S.selected],b=c.buildings.find(x=>x.id===id),d=BUILDINGS[b.type];alert(`${d.name}\n필요 노동자: ${d.workers}\n현재 노동자: ${b.workers}\n건설비: ${d.cost.toLocaleString()}G${d.prod?"\n생산: "+Object.keys(d.prod).map(g=>GOODS[g].name).join(", "):""}`)}
+function startBuild(type){
+ const c=S.cities[S.selected],d=BUILDINGS[type];
+ if(!isPlayerCity()){logEvent("다른 도시는 AI가 운영합니다. 중앙도시만 직접 건설할 수 있습니다.");return}
+ if(S.money<d.cost){logEvent("건설 자금이 부족합니다.");return}
+ S.money-=d.cost;
+ const b=addBuilding(c.id,type,15+Math.random()*70,18+Math.random()*68,false);
+ S.construction.push({city:c.id,id:b.id});
+ logEvent(`${c.name}: ${d.name} 건설 시작 (${d.days}일)`);
+ render();renderPanel()
+}
+
+</script>
+<script>
+// ===== economy.js =====
+
+const ECON={
+  food:["rice","wheat","corn","potato","vegetable","fruit","meat","milk","bread","canned","frozen","drink"],
+  dailyNeed:{rice:.03,wheat:.025,corn:.02,potato:.02,vegetable:.025,fruit:.012,meat:.01,milk:.012,bread:.018,canned:.008,frozen:.006,drink:.01},
+  consumer:["bread","canned","frozen","drink","furniture","clothes","tools","phone","computer","tv","fridge","washer","aircon","car"],
+  industrial:["steel","chemicals","machine","wood","coal","ironOre","oil"]
+};
+function initPrices(){
+  for(const [k,g] of Object.entries(GOODS)) S.prices[k]=g.base;
+}
+function demandScore(c,g){
+  const base=ECON.dailyNeed[g]||0;
+  if(base) return c.population*base*30;
+  if(ECON.consumer.includes(g)) return c.population*(g==="car"?0.002:0.01);
+  return 10;
+}
+function updatePrices(){
+  for(const [id,c] of Object.entries(S.cities)){
+    c.demand={};
+    for(const g of Object.keys(GOODS)){
+      const demand=demandScore(c,g);
+      const stock=c.goods[g];
+      c.demand[g]=demand;
+      let target=GOODS[g].base;
+      if(demand>0){
+        const ratio=stock/(demand+1);
+        target*=Math.max(.55,Math.min(2.4,1.35-ratio));
+      }
+      if(c.port) target*=1.12;
+      c.localPrices=c.localPrices||{};
+      c.localPrices[g]=Math.max(1,target);
+    }
+  }
+  for(const g of Object.keys(GOODS)){
+    const vals=Object.values(S.cities).map(c=>c.localPrices[g]);
+    S.prices[g]=vals.reduce((a,b)=>a+b,0)/vals.length;
+  }
+}
+function consumeGoods(){
+  for(const c of Object.values(S.cities)){
+    let foodNeed=c.population*.25;
+    const priority=["rice","wheat","corn","potato","vegetable","fruit","meat","milk","bread","canned","frozen","drink"];
+    for(const g of priority){
+      const take=Math.min(c.goods[g],foodNeed);
+      c.goods[g]-=take; foodNeed-=take;
+      if(foodNeed<=0) break;
+    }
+    if(foodNeed>0){
+      c.foodShort++;
+      c.stability-=Math.min(12,foodNeed/Math.max(1,c.population)*100);
+    } else c.foodShort=0;
+  }
+}
+function sellToCity(from,to,g,amount){
+  const A=S.cities[from],B=S.cities[to];
+  if(!connected(from,to)||A.goods[g]<amount) return false;
+  const buy=B.localPrices?.[g]||GOODS[g].base;
+  const sell=(A.localPrices?.[g]||GOODS[g].base)*.78;
+  if(buy<=sell) return false;
+  A.goods[g]-=amount; B.goods[g]+=amount;
+  S.money+=Math.round((buy-sell)*amount);
+  S.tradeCount++; S.tradeStarted=true;
+  logEvent(`${A.name} → ${B.name}: ${GOODS[g].name} ${amount}개 중개무역, 차익 +${Math.round((buy-sell)*amount).toLocaleString()}G`);
+  return true;
+}
+function autoTrade(){
+  if(!S.tradeStarted) return;
+  const ids=Object.keys(S.cities);
+  for(const g of ECON.consumer.concat(["steel","machine","chemicals"])){
+    for(const a of ids) for(const b of ids){
+      if(a===b||!connected(a,b)) continue;
+      const A=S.cities[a],B=S.cities[b];
+      const pa=A.localPrices?.[g]||GOODS[g].base, pb=B.localPrices?.[g]||GOODS[g].base;
+      if(A.goods[g]>100 && pb>pa*1.18){ sellToCity(a,b,g,Math.min(50,Math.floor(A.goods[g]-100))); break; }
+    }
+  }
+}
+
+</script>
+<script>
+// ===== gameLoop.js =====
+
+function tickConstruction(){
+ for(const c of Object.values(S.cities))for(const b of c.buildings)if(!b.done){
+  b.remaining--;
+  if(b.remaining<=0){b.done=true;b.remaining=0;logEvent(`${c.name}: ${BUILDINGS[b.type].name} 완공`)}
+ }
+}
+function randomEvent(){
+ if(!S.tradeStarted||Math.random()>.25)return;
+ const c=Object.values(S.cities)[Math.floor(Math.random()*Object.keys(S.cities).length)],r=Math.random();
+ if(r<.12){c.stability-=12;c.unrest+=10;logEvent(`${c.name}: 대규모 시위 발생`)}
+ else if(r<.24){c.localPrices=c.localPrices||{};for(const g of ECON.food)c.localPrices[g]=(c.localPrices[g]||GOODS[g].base)*1.35;logEvent(`${c.name}: 식품 가격 급등`)}
+ else if(r<.36){for(const g of ["wheat","rice","corn"])c.goods[g]*=.7;logEvent(`${c.name}: 흉작 발생`)}
+ else if(r<.48){c.stability=Math.min(100,c.stability+12);logEvent(`${c.name}: 경기 호황`)}
+ else if(r<.60){c.goods.ironOre+=300;logEvent(`${c.name}: 철광석 광맥 발견`)}
+ else if(r<.72){c.unrest+=8;logEvent(`${c.name}: 항만·운송 파업`)}
+ else if(r<.84){const fs=c.buildings.filter(b=>b.done&&BUILDINGS[b.type].prod);if(fs.length){fs[Math.floor(Math.random()*fs.length)].done=false;logEvent(`${c.name}: 공장 화재로 생산시설 일시 중단`)}}
+ else{for(const g of ECON.consumer)c.localPrices[g]=(c.localPrices?.[g]||GOODS[g].base)*1.25;logEvent(`${c.name}: 소비 붐 — 소비재 가격 상승`)}
+}
+function nextDay(){
+ S.day++;tickConstruction();produce();updatePrices();
+ if(S.day>30){S.day=1;S.month++;monthlyEconomy();if(S.month>12){S.month=1;S.year++}}
+ render();renderPanel();
+}
+function startLoop(){}
+function skipDay(){nextDay()}
+
+</script>
+<script>
+// ===== main.js =====
+function render(){S.view==="world"?renderWorld():renderCity()}
+function money(){return `<span class="money">${Math.round(S.money).toLocaleString()} G</span>`}
+function goodsList(c){return Object.entries(c.goods).filter(([g,v])=>v>.1).map(([g,v])=>`<div class="row"><span>${GOODS[g].name}</span><span>${v.toFixed(0)}</span></div>`).join("")||"<span class='muted'>재고 없음</span>"}
+function buildingOptions(){return Object.entries(BUILDINGS).map(([k,d])=>`<option value="${k}">${d.name} / ${d.cost.toLocaleString()}G / ${d.days}일</option>`).join("")}
+function renderPanel(){
+ const p=document.getElementById("panel"),c=S.cities[S.selected];
+ let h=`<div class="card"><div class="row"><b>${S.view==="world"?"세계 지도":c.name}</b><span>${S.year}년 ${S.month}월 ${S.day}일</span></div><div>보유 자금 ${money()}</div>
+ <button onclick="skipDay()" style="width:100%;margin-top:8px;font-size:15px">⏭ 하루 건너뛰기</button></div>`;
+ if(S.view==="world"){
+  h+=`<div class="card"><h3>도시</h3>${Object.values(S.cities).map(x=>`<button onclick="selectCity('${x.id}')" style="width:100%;margin:2px 0">${x.name} ${x.id==="central"?"(플레이어)":"(AI)"} · ${Math.round(x.population).toLocaleString()}명</button>`).join("")}</div>`;
+ }else{
+  rebuildWorkers(c);
+  h+=`<div class="card"><h3>도시 정보 ${isPlayerCity()?"👤 플레이어":"🤖 AI 운영"}</h3><div class="row"><span>인구</span><span>${Math.round(c.population).toLocaleString()} / ${c.maxPop.toLocaleString()}</span></div><div class="row"><span>노동자</span><span>${c.workers}</span></div><div class="row"><span>실업자</span><span>${c.unemployed}</span></div><div class="row"><span>안정도</span><span>${c.stability.toFixed(0)}</span></div><div class="row"><span>불만도</span><span>${c.unrest.toFixed(0)}</span></div><div class="row"><span>임금체불</span><span>${c.wageDebt}개월</span></div></div>`;
+  h+=`<div class="card"><h3>건설</h3><select id="buildType" style="width:100%">${buildingOptions()}</select><button style="width:100%;margin-top:6px" onclick="startBuild(document.getElementById('buildType').value)">건설 시작</button></div>`;
+  h+=`<div class="card"><h3>교통망 건설</h3>
+ <select id="transportTarget" style="width:100%">
+ ${Object.values(S.cities).filter(x=>x.id!=="central").map(x=>`<option value="${x.id}">${x.name}</option>`).join("")}
+ </select>
+ <div class="grid" style="margin-top:6px">
+  <button onclick="buildTransport('road')">🛣 도로 연결</button>
+  <button onclick="buildTransport('rail')">🚆 철도 연결</button>
+ </div>
+ <div class="muted">중앙도시에서 선택한 AI 도시까지 직접 연결합니다.</div>
+</div>`;
+  h+=`<div class="card"><h3>중계무역</h3><select id="tradeGood" style="width:100%">${Object.entries(GOODS).map(([k,g])=>`<option value="${k}">${g.name}</option>`).join("")}</select><button style="width:100%;margin-top:6px" onclick="middleTrade(document.getElementById('tradeGood').value,50)">50개 중계무역</button></div>`;
+  h+=`<div class="card"><h3>재고</h3><div class="list">${goodsList(c)}</div></div>`;
+  h+=`<div class="card"><h3>도시 시장가격</h3><div class="list">${marketList(c)}</div></div>`;
+  if(isPlayerCity()){
+   h+=`<div class="card"><h3>연구</h3>${RESEARCH.map(r=>`<button style="width:100%;margin:2px 0" onclick="research('${r.id}')">${r.name} (${r.cost.toLocaleString()}G)</button>`).join("")}</div>`;
+  }
+ }
+ h+=`<div class="card"><h3>현재 교통망</h3>${S.links.map(l=>`<div class="row"><span>${S.cities[l.a].name} ↔ ${S.cities[l.b].name}</span><span>${l.type==="road"?"🛣":"🚆"}</span></div>`).join("")||"<span class='muted'>연결된 교통망이 없습니다.</span>"}</div>`;
+h+=`<div class="card"><h3>이벤트 로그</h3><div class="list">${S.events.map(e=>`<div class="log">${e}</div>`).join("")||"<span class='muted'>아직 사건이 없습니다.</span>"}</div></div>`;
+ p.innerHTML=h;document.getElementById("time").innerHTML=`DAY ${S.day} · ${S.year}/${S.month} · ${money()}`;
+}
+function marketList(c){return Object.entries(GOODS).map(([k,g])=>`<div class="row"><span>${g.name}</span><span>${Math.round(c.localPrices?.[k]||g.base)}G</span></div>`).join("")}
+function showManual(){
+ const old=document.getElementById("manualOverlay");
+ if(old) old.remove();
+ const el=document.createElement("div");
+ el.id="manualOverlay"; el.className="manual-overlay";
+ el.innerHTML=`<section class="manual-window" role="dialog" aria-modal="true" aria-labelledby="manualTitle">
+ <h2 id="manualTitle">📘 Mini Transport City 게임 설명서</h2>
+ <p>도시를 운영하고 생산 시설과 교통망을 만들어 경제를 성장시키는 경영 시뮬레이션입니다.</p>
+ <h3>1. 기본 조작</h3><ul>
+ <li><b>도시 선택:</b> 세계 지도에서 도시 점이나 오른쪽 도시 목록을 누르면 도시 내부를 볼 수 있습니다.</li>
+ <li><b>하루 건너뛰기:</b> 하루가 진행됩니다. 시간이 자동으로 흐르지는 않습니다.</li>
+ <li><b>중앙도시:</b> 플레이어가 직접 건설·연구·거래를 관리하는 도시입니다.</li>
+ <li><b>다른 도시:</b> AI가 운영합니다. 도시 내부를 볼 수 있지만 직접 관리할 수 없습니다.</li>
+ </ul>
+ <h3>2. 건설과 인구</h3><ul>
+ <li>중앙도시에서 건물 종류를 선택하고 <b>건설 시작</b>을 누릅니다. 건물마다 비용과 완공까지 걸리는 날짜가 다릅니다.</li>
+ <li>주택은 수용 인구를 늘립니다. 공장과 시설은 노동자가 있어야 생산할 수 있습니다.</li>
+ <li>인구는 식량을 소비합니다. 식량 부족이 길어지면 인구와 도시 안정도에 악영향이 생길 수 있습니다.</li>
+ </ul>
+ <h3>3. 도로와 철도</h3><ul>
+ <li><b>교통망 건설</b>에서 연결할 AI 도시를 고른 뒤 도로 또는 철도를 선택합니다. 현재 버전은 중앙도시와 선택한 도시를 직접 연결합니다.</li>
+ <li><b>도로</b>는 비교적 저렴하고 수송량이 적으며, <b>철도</b>는 비용이 더 들지만 수송량이 큽니다.</li>
+ <li>지도에서 도로는 굵은 회색 실선, 철도는 어두운 점선으로 표시됩니다. 오른쪽의 현재 교통망 목록에서 연결 내역을 확인할 수 있습니다.</li>
+ <li>이미 연결된 두 도시는 같은 종류의 연결을 중복 건설할 수 없습니다.</li>
+ </ul>
+ <h3>4. 생산·시장·연구</h3><ul>
+ <li>농장과 광산은 원재료를 생산하고, 공장은 원재료를 가공해 식품·철강·기계·전자제품 등을 만듭니다.</li>
+ <li>재고와 도시 시장가격을 확인해 생산품과 필요한 자원을 관리하세요. 가격은 도시의 수급 상황에 따라 달라질 수 있습니다.</li>
+ <li>중앙도시의 연구 메뉴에서 기술을 연구하면 도시 운영에 도움이 됩니다.</li>
+ </ul>
+ <h3>5. 운영 팁</h3><ul>
+ <li>자금이 부족해지지 않도록 건설비를 확인하고, 필요한 자원을 생산하는 도시와 교통망을 연결하세요.</li>
+ <li>하루씩 진행하면서 인구·노동자·실업자·안정도·재고와 이벤트 로그를 확인하세요.</li>
+ </ul>
+ <div class="manual-actions"><button onclick="document.getElementById('manualOverlay').remove()">설명서 닫고 시작하기</button></div>
+ </section>`;
+ document.body.appendChild(el);
+}
+function init(){
+ initPrices(); Object.values(S.cities).forEach(c=>{c.localPrices={};}); updatePrices(); logEvent("게임 시작: 중앙도시는 플레이어, 나머지 도시는 AI가 운영합니다.");
+ logEvent("공업도시에는 철강·기계·전자제품 공장이 이미 있습니다.");
+ render();renderPanel();startLoop();showManual();
+}
+// ===== Supabase automatic cloud save/load =====
+let saveUserId = null;
+let saveReady = false;
+let saveTimer = null;
+let saveQueue = Promise.resolve();
+let saveIntervalStarted = false;
+
+function collectSaveData() {
+  return {
+    version: 1,
+    state: JSON.parse(JSON.stringify(S)),
+    researched: [...researched]
+  };
+}
+
+function restoreSaveData(data) {
+  if (!data || data.version !== 1 || !data.state || !data.state.cities) {
+    throw new Error("저장 데이터 형식이 올바르지 않습니다.");
+  }
+  const state = data.state;
+  if (!state.cities.central || !Array.isArray(state.links) || !Array.isArray(state.construction) || !state.prices) {
+    throw new Error("저장된 도시 데이터가 손상되었습니다.");
+  }
+  Object.assign(S, state);
+  researched.clear();
+  for (const id of (data.researched || [])) {
+    if (RESEARCH.some(item => item.id === id)) researched.add(id);
+  }
+  for (const city of Object.values(S.cities)) {
+    city.goods = { ...blankGoods(), ...(city.goods || {}) };
+    city.localPrices = city.localPrices || {};
+    city.buildings = city.buildings || [];
+  }
+}
+
+async function saveGameNow() {
+  if (!saveReady || !saveUserId) return;
+  const { error } = await sb.from("game_saves").upsert({
+    user_id: saveUserId,
+    save_data: collectSaveData(),
+    updated_at: new Date().toISOString()
+  }, { onConflict: "user_id" });
+  if (error) throw error;
+  console.log("Mini Transport City: 클라우드 저장 완료");
+}
+
+function requestGameSave() {
+  if (!saveReady || !saveUserId) return;
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => {
+    saveQueue = saveQueue.catch(() => {}).then(saveGameNow).catch(error => {
+      console.error("클라우드 저장 실패:", error);
+      showSaveNotice("클라우드 저장 실패 — 인터넷과 Supabase 설정을 확인하세요.");
+    });
+  }, 700);
+}
+
+function showSaveNotice(message) {
+  let el = document.getElementById("cloudSaveNotice");
+  if (!el) {
+    el = document.createElement("div");
+    el.id = "cloudSaveNotice";
+    el.style.cssText = "position:fixed;bottom:10px;right:10px;z-index:2000;background:#17212c;color:#fff;padding:8px 12px;border:1px solid #52627a;border-radius:7px;font-size:12px;max-width:90vw";
+    document.body.appendChild(el);
+  }
+  el.textContent = message;
+  if (message.includes("완료")) setTimeout(() => el.remove(), 2500);
+}
+
+async function loadGameFromSupabase() {
+  const { data: sessionData, error: sessionError } = await sb.auth.getSession();
+  if (sessionError) throw sessionError;
+  let session = sessionData.session;
+  if (!session) {
+    const { data, error } = await sb.auth.signInAnonymously();
+    if (error) throw error;
+    session = data.session;
+  }
+  if (!session) throw new Error("익명 로그인 세션을 만들지 못했습니다.");
+  saveUserId = session.user.id;
+
+  const { data: saved, error } = await sb.from("game_saves")
+    .select("save_data").eq("user_id", saveUserId).maybeSingle();
+  if (error) throw error;
+
+  if (saved && saved.save_data) {
+    restoreSaveData(saved.save_data);
+    render();
+    renderPanel();
+    showSaveNotice("이전 게임을 불러왔습니다.");
+  } else {
+    init();
+    showSaveNotice("새 게임을 시작했습니다. 자동 저장이 켜졌습니다.");
+  }
+
+  saveReady = true;
+  requestGameSave();
+  if (!saveIntervalStarted) {
+    saveIntervalStarted = true;
+    setInterval(requestGameSave, 15000);
+  }
+}
+
+function installAutoSaveHooks() {
+  const hook = (name) => {
+    const original = window[name];
+    if (typeof original !== "function") return;
+    window[name] = function (...args) {
+      const result = original.apply(this, args);
+      requestGameSave();
+      return result;
+    };
+  };
+  ["nextDay", "startBuild", "connectCities", "research", "tradeGood", "middleTrade", "buildTransport"].forEach(hook);
+}
+
+async function startGameWithCloudSave() {
+  installAutoSaveHooks();
+  try {
+    await loadGameFromSupabase();
+  } catch (error) {
+    saveReady = false;
+    console.error("클라우드 저장/불러오기 실패:", error);
+    const message = `클라우드 저장에 연결하지 못했습니다.
+Supabase에서 Anonymous Sign-Ins를 켰는지, game_saves 테이블과 RLS 정책을 만들었는지 확인하세요.
+기존 저장 데이터를 보호하기 위해 새 게임은 자동으로 시작하지 않았습니다.`;
+    alert(message);
+  }
+}
+
+// Best-effort final save when leaving or refreshing the page.
+window.addEventListener("pagehide", () => {
+  if (saveReady && saveUserId) {
+    clearTimeout(saveTimer);
+    saveQueue = saveQueue.catch(() => {}).then(saveGameNow).catch(error => console.error("마지막 저장 실패:", error));
+  }
+});
+
+startGameWithCloudSave();
+
+</script>
+<div style="position:fixed;bottom:5px;left:8px;font-size:10px;color:#687789;z-index:999">Mini Transport City — Standalone HTML</div>
+</body>
+</html>
